@@ -11,7 +11,7 @@ $(document).ready(async function () {
 // Resets the logging form and deletes session from database
 function reset_contest_session() {
 	$('#name').val("");
-	$('.callsign-suggestions').text("");
+	$('.callsign-suggestions').html("");
 	$('#callsign').val("");
 	$('#comment').val("");
 
@@ -218,7 +218,17 @@ $("#callsign").keyup(function () {
 				callsign: $(this).val().toUpperCase()
 			},
 			success: function (result) {
-				$('.callsign-suggestions').text(result);
+				// Split suggestions by spaces and create clickable elements
+				var suggestions = result.trim().split(/\s+/);
+				var suggestionsHtml = '';
+				
+				$.each(suggestions, function(index, suggestion) {
+					if (suggestion.length > 0) {
+						suggestionsHtml += '<span class="badge text-bg-primary me-1 mb-1 suggestion-callsign" style="cursor: pointer;">' + suggestion + '</span>';
+					}
+				});
+				
+				$('.callsign-suggestions').html(suggestionsHtml);
 				highlight(call.toUpperCase());
 			}
 		});
@@ -228,8 +238,17 @@ $("#callsign").keyup(function () {
 		qTable.search(call).draw();
 	}
 	else if (call.length <= 2) {
-		$('.callsign-suggestions').text("");
+		$('.callsign-suggestions').html("");
 	}
+});
+
+// Add click handler for callsign suggestions
+$(document).on('click', '.suggestion-callsign', function() {
+	var selectedCallsign = $(this).text();
+	$('#callsign').val(selectedCallsign);
+	$('.callsign-suggestions').html("");
+	checkIfWorkedBefore();
+	$('#callsign').focus();
 });
 
 function checkIfWorkedBefore() {
@@ -267,7 +286,7 @@ function checkIfWorkedBefore() {
 
 async function reset_log_fields() {
 	$('#name').val("");
-	$('.callsign-suggestions').text("");
+	$('.callsign-suggestions').html("");
 	$('#callsign').val("");
 	$('#comment').val("");
 	$('#exch_rcvd').val("");
@@ -290,14 +309,14 @@ function highlight(term, base) {
 	if (!term) return;
 	base = base || document.body;
 	var re = new RegExp("(" + RegExp.escape(term) + ")", "gi");
-	var replacement = "<span class=\"text-primary\">" + term + "</span>";
-	$(".callsign-suggestions", base).contents().each(function (i, el) {
-		if (el.nodeType === 3) {
-			var data = el.data;
-			if (data = data.replace(re, replacement)) {
-				var wrapper = $("<span>").html(data);
-				$(el).before(wrapper.contents()).remove();
-			}
+	
+	// Highlight matching text within suggestion badges
+	$(".suggestion-callsign", base).each(function() {
+		var $badge = $(this);
+		var text = $badge.text();
+		var highlightedText = text.replace(re, "<span class=\"text-warning fw-bold\">$1</span>");
+		if (highlightedText !== text) {
+			$badge.html(highlightedText);
 		}
 	});
 }
@@ -380,7 +399,7 @@ function setExchangetype(exchangetype) {
 function logQso() {
 	if ($("#callsign").val().length > 0) {
 
-		$('.callsign-suggestions').text("");
+		$('.callsign-suggestions').html("");
 
 		var table = $('.qsotable').DataTable();
 		var exchangetype = $("#exchangetype").val();

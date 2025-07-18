@@ -1028,11 +1028,29 @@ $("#callsign").keyup(function() {
 		  callsign: $callsign.toUpperCase()
 		},
 		success: function(result) {
-		  $('.callsign-suggestions').text(result);
+		  // Split suggestions by spaces and create clickable elements
+		  var suggestions = result.trim().split(/\s+/);
+		  var suggestionsHtml = '';
+		  
+		  $.each(suggestions, function(index, suggestion) {
+			if (suggestion.length > 0) {
+			  suggestionsHtml += '<span class="badge text-bg-primary me-1 mb-1 suggestion-callsign" style="cursor: pointer;">' + suggestion + '</span>';
+			}
+		  });
+		  
+		  $('.callsign-suggestions').html(suggestionsHtml);
 		}
 	  });
 	}
   });
+
+// Add click handler for callsign suggestions
+$(document).on('click', '.suggestion-callsign', function() {
+	var selectedCallsign = $(this).text();
+	$('#callsign').val(selectedCallsign);
+	$('.callsign-suggestions').html("");
+	$('#callsign').focusout(); // Trigger the focusout event to populate DXCC info
+});
 
 //Reset QSO form Fields function
 function resetDefaultQSOFields() {
