@@ -29,11 +29,25 @@ class Workabledxcc extends CI_Controller
 
 	public function dxcclist()
 	{
-
-		$json = file_get_contents($this->optionslib->get_option('dxped_url'));
-
-		// Decode the JSON data into a PHP array
-		$dataResult = json_decode($json, true);
+		// Initialize cache
+		$this->load->driver('cache', array('adapter' => 'file', 'backup' => 'dummy'));
+		
+		// Create cache key based on the DXPed URL to ensure cache invalidation if URL changes
+		$cache_key = 'dxped_data_' . md5($this->optionslib->get_option('dxped_url'));
+		
+		// Try to get data from cache first
+		$dataResult = $this->cache->get($cache_key);
+		
+		if ($dataResult === FALSE) {
+			// Cache miss - fetch fresh data
+			$json = file_get_contents($this->optionslib->get_option('dxped_url'));
+			
+			// Decode the JSON data into a PHP array
+			$dataResult = json_decode($json, true);
+			
+			// Cache the decoded data for 1 hour (3600 seconds)
+			$this->cache->save($cache_key, $dataResult, 3600);
+		}
 
 		// Initialize an empty array to store the required data
 		$requiredData = array();
