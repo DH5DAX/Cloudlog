@@ -397,6 +397,52 @@ class Bands extends CI_Model {
 
 		return $worked_slots;
 	}
+
+	/**
+	 * Convert frequency in MHz to amateur radio band
+	 * 
+	 * @param float $frequency_mhz Frequency in MHz
+	 * @return string|false Band designation (e.g., "20M") or false if not in amateur band
+	 */
+	function get_band_from_freq($frequency_mhz) {
+		$frequency_mhz = floatval($frequency_mhz);
+		
+		// Amateur radio band frequency ranges (in MHz)
+		$band_ranges = array(
+			"2200M" => array(0.1357, 0.1378),
+			"630M" => array(0.472, 0.479),
+			"160M" => array(1.8, 2.0),
+			"80M" => array(3.5, 4.0),
+			"60M" => array(5.3515, 5.3665),
+			"40M" => array(7.0, 7.3),
+			"30M" => array(10.1, 10.15),
+			"20M" => array(14.0, 14.35),
+			"17M" => array(18.068, 18.168),
+			"15M" => array(21.0, 21.45),
+			"12M" => array(24.89, 24.99),
+			"10M" => array(28.0, 29.7),
+			"6M" => array(50.0, 54.0),
+			"4M" => array(70.0, 70.5),
+			"2M" => array(144.0, 148.0),
+			"1.25M" => array(222.0, 225.0),
+			"70CM" => array(420.0, 450.0),
+			"33CM" => array(902.0, 928.0),
+			"23CM" => array(1240.0, 1300.0),
+			"13CM" => array(2300.0, 2450.0),
+			"9CM" => array(3300.0, 3500.0),
+			"6CM" => array(5650.0, 5925.0),
+			"3CM" => array(10000.0, 10500.0),
+			"1.25CM" => array(24000.0, 24250.0),
+		);
+		
+		foreach ($band_ranges as $band => $range) {
+			if ($frequency_mhz >= $range[0] && $frequency_mhz <= $range[1]) {
+				return $band;
+			}
+		}
+		
+		return false; // Frequency not in any amateur band
+	}
 }
 
 ?>

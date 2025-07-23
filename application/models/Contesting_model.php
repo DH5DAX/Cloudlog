@@ -134,6 +134,13 @@ class Contesting_model extends CI_Model {
 		$this->db->update('contest_session', $data);
     }
 
+	function get_exchangetype($id) {
+		$this->db->where('id', $id);
+		$query = $this->db->get('contest');
+		$row = $query->row();
+		return $row->exchangetype;
+	}
+
     function getActivecontests() {
 
 		$sql = "SELECT name, adifname FROM contest WHERE active = 1 ORDER BY name ASC";

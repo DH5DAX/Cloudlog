@@ -207,4 +207,12 @@ class Contesting extends CI_Controller {
 		}
 		return;
 	}
+
+	public function get_exchangetype() {
+		$this->load->model('Contesting_model');
+		$contest_id = $this->input->post('contest_id');
+		$exchangetype = $this->Contesting_model->get_exchangetype($contest_id);
+		header('Content-Type: application/json');
+		echo json_encode($exchangetype);
+	}
 }

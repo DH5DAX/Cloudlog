@@ -26,7 +26,7 @@
                             <div class="col-auto">
                                 <select class="form-select form-select-sm" id="contestname" name="contestname">
 									<?php foreach($contestnames as $contest) {
-										echo "<option value='" . $contest['adifname'] . "'>" . $contest['name'] . "</option>";
+										echo "<option value='" . $contest['adifname'] . "' data-exchangetype='" . $contest['exchangetype'] . "'>" . $contest['name'] . "</option>";
 									} ?>
                                 </select>
                             </div>

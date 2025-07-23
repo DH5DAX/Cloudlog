@@ -814,4 +814,243 @@ class API extends CI_Controller {
 		$latlng = $this->qra->qra2latlong($qra);
 		return $latlng;
 	}
+
+	/**
+	 * Check if a callsign has been worked before in various combinations
+	 * 
+	 * This API endpoint performs comprehensive "worked before" checks for a given callsign,
+	 * including checks by band, mode, and DXCC entity. Useful for contest logging and
+	 * dupe checking.
+	 * 
+	 * @api POST /api/worked_before
+	 * @header Content-Type application/json
+	 * 
+	 * @param string key Required. API authentication key
+	 * @param string logbook_public_slug Required. Public slug identifier for the logbook
+	 * @param string callsign Required. Callsign to check
+	 * @param string frequency Required. Frequency in MHz (e.g., "14.205")
+	 * @param string mode Required. Amateur radio mode (e.g., "SSB", "CW", "FT8")
+	 * 
+	 * @return json Returns JSON object with:
+	 *   - callsign: object with worked status for callsign
+	 *     - any: boolean - worked before on any band/mode
+	 *     - band: boolean - worked before on this band
+	 *     - mode: boolean - worked before in this mode
+	 *     - bandMode: boolean - worked before on this band and mode
+	 *   - dxcc: object with worked status for DXCC entity
+	 *     - any: boolean - DXCC entity worked before on any band/mode
+	 *     - band: boolean - DXCC entity worked before on this band
+	 *     - mode: boolean - DXCC entity worked before in this mode
+	 *     - bandMode: boolean - DXCC entity worked before on this band and mode
+	 *   - info: object with additional information
+	 *     - band: string - derived band from frequency
+	 *     - dxccEntity: string - DXCC entity name for the callsign
+	 * 
+	 * @throws 401 Unauthorized - Missing or invalid API key, missing required fields
+	 * @throws 404 Not Found - Logbook not found or empty logbook
+	 * @throws 400 Bad Request - Invalid JSON format
+	 * 
+	 * @example
+	 * Request:
+	 * {
+	 *   "key": "your-api-key",
+	 *   "logbook_public_slug": "my-logbook",
+	 *   "callsign": "W1AW",
+	 *   "frequency": "14.205",
+	 *   "mode": "SSB"
+	 * }
+	 * 
+	 * Response:
+	 * {
+	 *   "callsign": {
+	 *     "any": true,
+	 *     "band": false,
+	 *     "mode": true,
+	 *     "bandMode": false
+	 *   },
+	 *   "dxcc": {
+	 *     "any": true,
+	 *     "band": true,
+	 *     "mode": true,
+	 *     "bandMode": true
+	 *   },
+	 *   "info": {
+	 *     "band": "20M",
+	 *     "dxccEntity": "United States"
+	 *   }
+	 * }
+	 */
+	function worked_before()
+	{
+		header('Content-type: application/json');
+
+		$this->load->model('api_model');
+
+		// Decode JSON and store
+		$obj = json_decode(file_get_contents("php://input"), true);
+		if ($obj === NULL) {
+			http_response_code(400);
+			echo json_encode(['status' => 'failed', 'reason' => "Invalid JSON format"]);
+			return;
+		}
+
+		if(!isset($obj['key']) || $this->api_model->authorize($obj['key']) == 0) {
+		   http_response_code(401);
+		   echo json_encode(['status' => 'failed', 'reason' => "Missing or invalid API key"]);
+		   return;
+		}
+
+		$required_fields = ['logbook_public_slug', 'callsign', 'frequency', 'mode'];
+		foreach ($required_fields as $field) {
+			if (!isset($obj[$field]) || empty($obj[$field])) {
+				http_response_code(400);
+				echo json_encode(['status' => 'failed', 'reason' => "Missing required field: $field"]);
+				return;
+			}
+		}
+
+		// Load models
+		$this->load->model('logbook_model');
+		$this->load->model('logbooks_model');
+		$this->load->model('bands');
+
+		$date = date("Y-m-d");
+		$callsign = strtoupper(trim($obj['callsign']));
+		$logbook_slug = $obj['logbook_public_slug'];
+		$frequency = floatval($obj['frequency']);
+		$mode = strtoupper(trim($obj['mode']));
+
+		// Get band from frequency
+		$band = $this->bands->get_band_from_freq($frequency);
+		if (!$band) {
+			http_response_code(400);
+			echo json_encode(['status' => 'failed', 'reason' => "Invalid frequency: $frequency MHz"]);
+			return;
+		}
+
+		// Get DXCC entity for callsign
+		$callsign_dxcc_lookup = $this->logbook_model->dxcc_lookup($callsign, $date);
+		$dxcc_entity = $callsign_dxcc_lookup['entity'];
+
+		// Initialize return structure
+		$return = [
+			"callsign" => [
+				"any" => false,
+				"band" => false,
+				"mode" => false,
+				"bandMode" => false
+			],
+			"dxcc" => [
+				"any" => false,
+				"band" => false,
+				"mode" => false,
+				"bandMode" => false
+			],
+			"info" => [
+				"band" => $band,
+				"dxccEntity" => $dxcc_entity
+			]
+		];
+
+		// Verify logbook exists and get station locations
+		if(!$this->logbooks_model->public_slug_exists($logbook_slug)) {
+			http_response_code(404);
+			echo json_encode(['status' => 'failed', 'reason' => "Logbook not found"]);
+			return;
+		}
+
+		$logbook_id = $this->logbooks_model->public_slug_exists_logbook_id($logbook_slug);
+		if($logbook_id === false) {
+			http_response_code(404);
+			echo json_encode(['status' => 'failed', 'reason' => "$logbook_slug has no associated station locations"]);
+			return;
+		}
+
+		$logbooks_locations_array = $this->logbooks_model->list_logbook_relationships($logbook_id);
+		if (!$logbooks_locations_array) {
+			http_response_code(404);
+			echo json_encode(['status' => 'failed', 'reason' => "Empty logbook"]);
+			return;
+		}
+
+		$this->api_model->update_last_used($obj['key']);
+
+		// Get main mode for comparison
+		$main_mode = $this->logbook_model->get_main_mode_from_mode($mode);
+
+		// Check callsign worked before - any band/mode
+		$this->db->select('1');
+		$this->db->where_in('station_id', $logbooks_locations_array);
+		$this->db->where('COL_CALL', $callsign);
+		$this->db->where('COL_PROP_MODE !=', 'SAT'); // Exclude satellite
+		$query = $this->db->get($this->config->item('table_name'), 1);
+		$return['callsign']['any'] = $query->num_rows() > 0;
+
+		// Check callsign worked before - this band
+		$this->db->select('1');
+		$this->db->where_in('station_id', $logbooks_locations_array);
+		$this->db->where('COL_CALL', $callsign);
+		$this->db->where('COL_BAND', $band);
+		$this->db->where('COL_PROP_MODE !=', 'SAT');
+		$query = $this->db->get($this->config->item('table_name'), 1);
+		$return['callsign']['band'] = $query->num_rows() > 0;
+
+		// Check callsign worked before - this mode
+		$this->db->select('1');
+		$this->db->where_in('station_id', $logbooks_locations_array);
+		$this->db->where('COL_CALL', $callsign);
+		$this->db->where('COL_MODE', $main_mode);
+		$this->db->where('COL_PROP_MODE !=', 'SAT');
+		$query = $this->db->get($this->config->item('table_name'), 1);
+		$return['callsign']['mode'] = $query->num_rows() > 0;
+
+		// Check callsign worked before - this band and mode
+		$this->db->select('1');
+		$this->db->where_in('station_id', $logbooks_locations_array);
+		$this->db->where('COL_CALL', $callsign);
+		$this->db->where('COL_BAND', $band);
+		$this->db->where('COL_MODE', $main_mode);
+		$this->db->where('COL_PROP_MODE !=', 'SAT');
+		$query = $this->db->get($this->config->item('table_name'), 1);
+		$return['callsign']['bandMode'] = $query->num_rows() > 0;
+
+		// Check DXCC entity worked before - any band/mode
+		$this->db->select('1');
+		$this->db->where_in('station_id', $logbooks_locations_array);
+		$this->db->where('COL_COUNTRY', $dxcc_entity);
+		$this->db->where('COL_PROP_MODE !=', 'SAT');
+		$query = $this->db->get($this->config->item('table_name'), 1);
+		$return['dxcc']['any'] = $query->num_rows() > 0;
+
+		// Check DXCC entity worked before - this band
+		$this->db->select('1');
+		$this->db->where_in('station_id', $logbooks_locations_array);
+		$this->db->where('COL_COUNTRY', $dxcc_entity);
+		$this->db->where('COL_BAND', $band);
+		$this->db->where('COL_PROP_MODE !=', 'SAT');
+		$query = $this->db->get($this->config->item('table_name'), 1);
+		$return['dxcc']['band'] = $query->num_rows() > 0;
+
+		// Check DXCC entity worked before - this mode
+		$this->db->select('1');
+		$this->db->where_in('station_id', $logbooks_locations_array);
+		$this->db->where('COL_COUNTRY', $dxcc_entity);
+		$this->db->where('COL_MODE', $main_mode);
+		$this->db->where('COL_PROP_MODE !=', 'SAT');
+		$query = $this->db->get($this->config->item('table_name'), 1);
+		$return['dxcc']['mode'] = $query->num_rows() > 0;
+
+		// Check DXCC entity worked before - this band and mode
+		$this->db->select('1');
+		$this->db->where_in('station_id', $logbooks_locations_array);
+		$this->db->where('COL_COUNTRY', $dxcc_entity);
+		$this->db->where('COL_BAND', $band);
+		$this->db->where('COL_MODE', $main_mode);
+		$this->db->where('COL_PROP_MODE !=', 'SAT');
+		$query = $this->db->get($this->config->item('table_name'), 1);
+		$return['dxcc']['bandMode'] = $query->num_rows() > 0;
+
+		http_response_code(200);
+		echo json_encode($return, JSON_PRETTY_PRINT);
+	}
 }
