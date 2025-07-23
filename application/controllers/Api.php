@@ -900,7 +900,7 @@ class API extends CI_Controller {
 		   return;
 		}
 
-		$required_fields = ['logbook_public_slug', 'callsign', 'frequency', 'mode'];
+		$required_fields = ['callsign', 'frequency', 'mode'];
 		foreach ($required_fields as $field) {
 			if (!isset($obj[$field]) || empty($obj[$field])) {
 				http_response_code(400);
