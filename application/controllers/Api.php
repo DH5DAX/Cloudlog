@@ -1053,4 +1053,149 @@ class API extends CI_Controller {
 		http_response_code(200);
 		echo json_encode($return, JSON_PRETTY_PRINT);
 	}
+
+	/**
+	 * Retrieve the last 10 QSO entries in compact format
+	 * 
+	 * This API endpoint returns the most recent 10 QSO entries from a logbook
+	 * in a compact format suitable for quick display or status checking.
+	 * 
+	 * @api POST /api/recent_qsos
+	 * @header Content-Type application/json
+	 * 
+	 * @param string key Required. API authentication key
+	 * @param string logbook_public_slug Required. Public slug identifier for the logbook
+	 * @param int limit Optional. Number of QSOs to return (default: 10, max: 50)
+	 * 
+	 * @return json Returns JSON array with recent QSOs:
+	 *   - timestamp: string - QSO date and time (ISO format)
+	 *   - callsign: string - Contacted callsign
+	 *   - name: string - Operator name (if available)
+	 *   - band: string - Amateur radio band
+	 *   - mode: string - Amateur radio mode
+	 *   - rst_sent: string - RST sent
+	 *   - rst_rcvd: string - RST received
+	 *   - country: string - DXCC entity
+	 *   - comment: string - QSO comment (if any)
+	 * 
+	 * @throws 401 Unauthorized - Missing or invalid API key
+	 * @throws 404 Not Found - Logbook not found or empty logbook
+	 * @throws 400 Bad Request - Invalid JSON format
+	 * 
+	 * @example
+	 * Request:
+	 * {
+	 *   "key": "your-api-key",
+	 *   "logbook_public_slug": "my-logbook",
+	 *   "limit": 5
+	 * }
+	 * 
+	 * Response:
+	 * [
+	 *   {
+	 *     "timestamp": "2025-07-24T14:30:00Z",
+	 *     "callsign": "W1AW",
+	 *     "name": "John Smith",
+	 *     "band": "20M",
+	 *     "mode": "SSB",
+	 *     "rst_sent": "59",
+	 *     "rst_rcvd": "59",
+	 *     "country": "United States",
+	 *     "comment": "Nice signal!"
+	 *   },
+	 *   {
+	 *     "timestamp": "2025-07-24T14:25:00Z",
+	 *     "callsign": "VK3ABC",
+	 *     "name": "",
+	 *     "band": "20M",
+	 *     "mode": "CW",
+	 *     "rst_sent": "599",
+	 *     "rst_rcvd": "579",
+	 *     "country": "Australia",
+	 *     "comment": ""
+	 *   }
+	 * ]
+	 */
+	function recent_qsos()
+	{
+		header('Content-type: application/json');
+
+		$this->load->model('api_model');
+
+		// Decode JSON and store
+		$obj = json_decode(file_get_contents("php://input"), true);
+		if ($obj === NULL) {
+			http_response_code(400);
+			echo json_encode(['status' => 'failed', 'reason' => "Invalid JSON format"]);
+			return;
+		}
+
+		if(!isset($obj['key']) || $this->api_model->authorize($obj['key']) == 0) {
+		   http_response_code(401);
+		   echo json_encode(['status' => 'failed', 'reason' => "Missing or invalid API key"]);
+		   return;
+		}
+
+		if(!isset($obj['logbook_public_slug'])) {
+		   http_response_code(400);
+		   echo json_encode(['status' => 'failed', 'reason' => "Missing required field: logbook_public_slug"]);
+		   return;
+		}
+
+		// Load models
+		$this->load->model('logbooks_model');
+
+		$logbook_slug = $obj['logbook_public_slug'];
+		$limit = isset($obj['limit']) ? intval($obj['limit']) : 10;
+		
+		// Ensure limit is within reasonable bounds
+		if ($limit < 1) $limit = 10;
+		if ($limit > 50) $limit = 50;
+
+		// Verify logbook exists and get station locations
+		if(!$this->logbooks_model->public_slug_exists($logbook_slug)) {
+			http_response_code(404);
+			echo json_encode(['status' => 'failed', 'reason' => "Logbook not found"]);
+			return;
+		}
+
+		$logbook_id = $this->logbooks_model->public_slug_exists_logbook_id($logbook_slug);
+		if($logbook_id === false) {
+			http_response_code(404);
+			echo json_encode(['status' => 'failed', 'reason' => "$logbook_slug has no associated station locations"]);
+			return;
+		}
+
+		$logbooks_locations_array = $this->logbooks_model->list_logbook_relationships($logbook_id);
+		if (!$logbooks_locations_array) {
+			http_response_code(404);
+			echo json_encode(['status' => 'failed', 'reason' => "Empty logbook"]);
+			return;
+		}
+
+		$this->api_model->update_last_used($obj['key']);
+
+		// Get recent QSOs
+		$this->db->select('
+			DATE_FORMAT(CONCAT(COL_TIME_ON, " ", COALESCE(COL_TIME_ON, "00:00:00")), "%Y-%m-%dT%H:%i:%sZ") as timestamp,
+			COL_CALL as callsign,
+			COALESCE(COL_NAME, "") as name,
+			COL_BAND as band,
+			COALESCE(COL_SUBMODE, COL_MODE) as mode,
+			COALESCE(COL_RST_SENT, "") as rst_sent,
+			COALESCE(COL_RST_RCVD, "") as rst_rcvd,
+			COALESCE(COL_COUNTRY, "") as country,
+			COALESCE(COL_COMMENT, "") as comment
+		');
+		$this->db->where_in('station_id', $logbooks_locations_array);
+		$this->db->order_by('COL_TIME_ON', 'DESC');
+		$this->db->order_by('COL_PRIMARY_KEY', 'DESC');
+		$this->db->limit($limit);
+		
+		$query = $this->db->get($this->config->item('table_name'));
+		$results = $query->result_array();
+
+		http_response_code(200);
+		echo json_encode($results, JSON_PRETTY_PRINT);
+	}
 }
