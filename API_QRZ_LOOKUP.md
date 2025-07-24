@@ -14,7 +14,7 @@ This endpoint provides comprehensive callsign lookup using QRZ.com's XML API. It
 
 - Valid CloudLog API key with read permissions
 - QRZ.com subscription (required for XML API access)
-- QRZ.com credentials configured in user profile
+- QRZ.com credentials configured in CloudLog system configuration
 
 ## Request Format
 
@@ -102,7 +102,7 @@ Content-Type: application/json
 - `"Invalid JSON format"` - Request body is not valid JSON
 - `"Missing or invalid API key"` - API key is missing or invalid
 - `"Missing callsign parameter"` - Callsign field is missing or empty
-- `"QRZ.com credentials not configured for this user"` - User needs to configure QRZ.com credentials
+- `"QRZ.com credentials not configured in system"` - System administrator needs to configure QRZ.com credentials
 - `"QRZ.com authentication failed"` - Invalid QRZ.com credentials
 - `"Callsign W1AW not found in QRZ.com database"` - Callsign not found
 - `"QRZ.com error: [error]"` - Error returned by QRZ.com API
@@ -111,13 +111,16 @@ Content-Type: application/json
 
 ### 1. Configure QRZ.com Credentials
 
-Users must configure their QRZ.com credentials in their CloudLog profile:
+System administrators must configure QRZ.com credentials in the CloudLog configuration file:
 
-1. Log in to CloudLog
-2. Go to Account Settings
-3. Set Callbook Type to "QRZ.com"
-4. Enter QRZ.com username and password
-5. Save settings
+1. Edit `application/config/config.php`
+2. Set the following values:
+   ```php
+   $config['qrz_username'] = "your-qrz-username";
+   $config['qrz_password'] = "your-qrz-password";
+   $config['use_fullname'] = false; // or true for full names
+   ```
+3. Save the configuration file
 
 ### 2. QRZ.com Subscription
 

@@ -1271,7 +1271,6 @@ class API extends CI_Controller {
 
 		// Load required models
 		$this->load->model('api_model');
-		$this->load->model('user_model');
 
 		// Validate API key
 		if (!isset($obj['key']) || !$this->api_model->authorize($obj['key'])) {
@@ -1292,34 +1291,22 @@ class API extends CI_Controller {
 		// Update API usage tracking
 		$this->api_model->update_last_used($obj['key']);
 
+		// Check if QRZ credentials are configured in the global config
+		$qrz_username = $this->config->item('qrz_username');
+		$qrz_password = $this->config->item('qrz_password');
+
+		if (empty($qrz_username) || empty($qrz_password)) {
+			http_response_code(503);
+			echo json_encode(['status' => 'failed', 'reason' => 'QRZ.com credentials not configured in system']);
+			return;
+		}
+
 		// Load QRZ library
 		$this->load->library('qrz');
-		$this->load->library('encryption');
-
-		// Get user ID from API key
-		$user_id = $this->api_model->key_userid($obj['key']);
-
-		// Get user's QRZ credentials
-		$user_data = $this->user_model->get_by_id($user_id);
-		if (!$user_data) {
-			http_response_code(503);
-			echo json_encode(['status' => 'failed', 'reason' => 'User not found']);
-			return;
-		}
-
-		// Check if user has QRZ credentials configured
-		if (empty($user_data->user_callbook_username) || empty($user_data->user_callbook_password)) {
-			http_response_code(503);
-			echo json_encode(['status' => 'failed', 'reason' => 'QRZ.com credentials not configured for this user']);
-			return;
-		}
 
 		try {
-			// Decrypt the password
-			$decrypted_password = $this->encryption->decrypt($user_data->user_callbook_password);
-
 			// Get QRZ session key
-			$session_key = $this->qrz->session($user_data->user_callbook_username, $decrypted_password);
+			$session_key = $this->qrz->session($qrz_username, $qrz_password);
 			if (empty($session_key)) {
 				http_response_code(503);
 				echo json_encode(['status' => 'failed', 'reason' => 'QRZ.com authentication failed']);
