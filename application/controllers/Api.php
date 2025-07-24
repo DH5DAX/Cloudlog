@@ -1198,4 +1198,157 @@ class API extends CI_Controller {
 		http_response_code(200);
 		echo json_encode($results, JSON_PRETTY_PRINT);
 	}
+
+	/**
+	 * QRZ.com Callsign Lookup API
+	 * 
+	 * This API endpoint performs a comprehensive callsign lookup using QRZ.com's XML API.
+	 * Returns full callsign data including profile information, location details, and
+	 * profile image links.
+	 * 
+	 * @api POST /api/qrz_lookup
+	 * @header Content-Type application/json
+	 * 
+	 * @param string key Required. API authentication key
+	 * @param string callsign Required. Callsign to lookup
+	 * 
+	 * @return json Returns JSON object with comprehensive QRZ.com data:
+	 *   - callsign: string - The callsign from QRZ
+	 *   - name: string - Operator name (first name or full name based on privacy settings)
+	 *   - gridsquare: string - Maidenhead grid locator (up to 8 characters)
+	 *   - city: string - City/location
+	 *   - lat: string - Latitude
+	 *   - long: string - Longitude
+	 *   - dxcc: string - DXCC entity code
+	 *   - iota: string - IOTA island reference
+	 *   - qslmgr: string - QSL manager
+	 *   - image: string - URL to profile image
+	 *   - state: string - State (US callsigns only)
+	 *   - us_county: string - US County (US callsigns only)
+	 *   - error: string - Error message if lookup failed
+	 * 
+	 * @throws 401 Unauthorized - Missing or invalid API key, missing required fields
+	 * @throws 503 Service Unavailable - QRZ.com credentials not configured or authentication failed
+	 * @throws 400 Bad Request - Invalid JSON format
+	 * 
+	 * @example
+	 * Request:
+	 * {
+	 *   "key": "your-api-key",
+	 *   "callsign": "W1AW"
+	 * }
+	 * 
+	 * Response:
+	 * {
+	 *   "callsign": "W1AW",
+	 *   "name": "Hiram Percy Maxim",
+	 *   "gridsquare": "FN31pr",
+	 *   "city": "Newington",
+	 *   "lat": "41.714775",
+	 *   "long": "-72.727260",
+	 *   "dxcc": "291",
+	 *   "iota": "",
+	 *   "qslmgr": "",
+	 *   "image": "https://s3.amazonaws.com/files.qrz.com/q/w1aw/w1aw.jpg",
+	 *   "state": "CT",
+	 *   "us_county": "Hartford"
+	 * }
+	 */
+	function qrz_lookup()
+	{
+		header('Content-type: application/json');
+
+		// Get JSON input
+		$json = file_get_contents('php://input');
+		$obj = json_decode($json, true);
+
+		// Validate JSON
+		if (!$obj) {
+			http_response_code(400);
+			echo json_encode(['status' => 'failed', 'reason' => 'Invalid JSON format']);
+			return;
+		}
+
+		// Load required models
+		$this->load->model('api_model');
+		$this->load->model('user_model');
+
+		// Validate API key
+		if (!isset($obj['key']) || !$this->api_model->authorize($obj['key'])) {
+			http_response_code(401);
+			echo json_encode(['status' => 'failed', 'reason' => 'Missing or invalid API key']);
+			return;
+		}
+
+		// Validate required fields
+		if (!isset($obj['callsign']) || empty(trim($obj['callsign']))) {
+			http_response_code(401);
+			echo json_encode(['status' => 'failed', 'reason' => 'Missing callsign parameter']);
+			return;
+		}
+
+		$callsign = strtoupper(trim($obj['callsign']));
+
+		// Update API usage tracking
+		$this->api_model->update_last_used($obj['key']);
+
+		// Load QRZ library
+		$this->load->library('qrz');
+		$this->load->library('encryption');
+
+		// Get user ID from API key
+		$user_id = $this->api_model->key_userid($obj['key']);
+
+		// Get user's QRZ credentials
+		$user_data = $this->user_model->get_by_id($user_id);
+		if (!$user_data) {
+			http_response_code(503);
+			echo json_encode(['status' => 'failed', 'reason' => 'User not found']);
+			return;
+		}
+
+		// Check if user has QRZ credentials configured
+		if (empty($user_data->user_callbook_username) || empty($user_data->user_callbook_password)) {
+			http_response_code(503);
+			echo json_encode(['status' => 'failed', 'reason' => 'QRZ.com credentials not configured for this user']);
+			return;
+		}
+
+		try {
+			// Decrypt the password
+			$decrypted_password = $this->encryption->decrypt($user_data->user_callbook_password);
+
+			// Get QRZ session key
+			$session_key = $this->qrz->session($user_data->user_callbook_username, $decrypted_password);
+			if (empty($session_key)) {
+				http_response_code(503);
+				echo json_encode(['status' => 'failed', 'reason' => 'QRZ.com authentication failed']);
+				return;
+			}
+
+			// Search for callsign
+			$qrz_data = $this->qrz->search($callsign, $session_key, $this->config->item('use_fullname'));
+
+			if (isset($qrz_data['error'])) {
+				http_response_code(404);
+				echo json_encode(['status' => 'failed', 'reason' => 'QRZ.com error: ' . $qrz_data['error']]);
+				return;
+			}
+
+			if (empty($qrz_data) || empty($qrz_data['callsign'])) {
+				http_response_code(404);
+				echo json_encode(['status' => 'failed', 'reason' => "Callsign $callsign not found in QRZ.com database"]);
+				return;
+			}
+
+			// Return the QRZ data
+			http_response_code(200);
+			echo json_encode($qrz_data, JSON_PRETTY_PRINT);
+
+		} catch (Exception $e) {
+			http_response_code(503);
+			echo json_encode(['status' => 'failed', 'reason' => 'QRZ.com service error: ' . $e->getMessage()]);
+			return;
+		}
+	}
 }
