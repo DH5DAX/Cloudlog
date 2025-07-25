@@ -27,7 +27,8 @@ Content-Type: application/json
 ```json
 {
   "key": "your-api-key",
-  "callsign": "W1AW"
+  "callsign": "W1AW",
+  "station_profile_id": 1
 }
 ```
 
@@ -37,6 +38,7 @@ Content-Type: application/json
 |-----------|------|----------|-------------|
 | `key` | string | Yes | Your CloudLog API authentication key |
 | `callsign` | string | Yes | Amateur radio callsign to lookup |
+| `station_profile_id` | integer | No | Your station profile ID for distance/bearing calculation |
 
 ## Response Format
 
@@ -55,7 +57,9 @@ Content-Type: application/json
   "qslmgr": "",
   "image": "https://s3.amazonaws.com/files.qrz.com/q/w1aw/w1aw.jpg",
   "state": "CT",
-  "us_county": "Hartford"
+  "us_county": "Hartford",
+  "distance": "1247 km",
+  "bearing": "072°"
 }
 ```
 
@@ -75,8 +79,10 @@ Content-Type: application/json
 | `image` | string | URL to operator's profile image |
 | `state` | string | State/province (US callsigns only) |
 | `us_county` | string | US county (US callsigns only) |
+| `distance` | string | Distance from your station in kilometers (if station_profile_id provided) |
+| `bearing` | string | Bearing from your station in degrees (if station_profile_id provided) |
 
-**Note:** Fields may be empty strings if data is not available or not published by the operator.
+**Note:** Fields may be empty strings if data is not available or not published by the operator. Distance and bearing fields are only populated when `station_profile_id` parameter is provided and the looked-up callsign has a valid gridsquare.
 
 ## HTTP Status Codes
 
@@ -102,6 +108,7 @@ Content-Type: application/json
 - `"Invalid JSON format"` - Request body is not valid JSON
 - `"Missing or invalid API key"` - API key is missing or invalid
 - `"Missing callsign parameter"` - Callsign field is missing or empty
+- `"Station profile does not belong to API key owner"` - Invalid station profile ID for this user
 - `"QRZ.com credentials not configured in system"` - System administrator needs to configure QRZ.com credentials
 - `"QRZ.com authentication failed"` - Invalid QRZ.com credentials
 - `"Callsign W1AW not found in QRZ.com database"` - Callsign not found
@@ -137,7 +144,8 @@ const response = await fetch('https://your-cloudlog.com/index.php/api/qrz_lookup
   },
   body: JSON.stringify({
     key: 'your-api-key',
-    callsign: 'W1AW'
+    callsign: 'W1AW',
+    station_profile_id: 1
   })
 });
 
@@ -153,7 +161,8 @@ import json
 url = 'https://your-cloudlog.com/index.php/api/qrz_lookup'
 payload = {
     'key': 'your-api-key',
-    'callsign': 'W1AW'
+    'callsign': 'W1AW',
+    'station_profile_id': 1
 }
 
 response = requests.post(url, json=payload)
@@ -162,6 +171,8 @@ data = response.json()
 print(f"Callsign: {data.get('callsign')}")
 print(f"Name: {data.get('name')}")
 print(f"Grid: {data.get('gridsquare')}")
+print(f"Distance: {data.get('distance')}")
+print(f"Bearing: {data.get('bearing')}")
 print(f"Image: {data.get('image')}")
 ```
 
@@ -171,7 +182,8 @@ curl -X POST https://your-cloudlog.com/index.php/api/qrz_lookup \
   -H "Content-Type: application/json" \
   -d '{
     "key": "your-api-key",
-    "callsign": "W1AW"
+    "callsign": "W1AW",
+    "station_profile_id": 1
   }'
 ```
 
@@ -181,7 +193,8 @@ curl -X POST https://your-cloudlog.com/index.php/api/qrz_lookup \
 $url = 'https://your-cloudlog.com/index.php/api/qrz_lookup';
 $data = [
     'key' => 'your-api-key',
-    'callsign' => 'W1AW'
+    'callsign' => 'W1AW',
+    'station_profile_id' => 1
 ];
 
 $options = [
@@ -198,6 +211,8 @@ $qrz_data = json_decode($result, true);
 
 echo "Callsign: " . $qrz_data['callsign'] . "\n";
 echo "Name: " . $qrz_data['name'] . "\n";
+echo "Distance: " . $qrz_data['distance'] . "\n";
+echo "Bearing: " . $qrz_data['bearing'] . "\n";
 echo "Image: " . $qrz_data['image'] . "\n";
 ?>
 ```
@@ -211,10 +226,11 @@ Perfect for displaying detailed operator information:
 - Station information displays
 
 ### Location Services
-Geographic information for mapping:
-- Plotting contacts on maps
-- Distance and bearing calculations
-- Grid square validation
+Geographic information for mapping and navigation:
+- Plotting contacts on maps with distance rings
+- Distance and bearing calculations for beam headings
+- Grid square validation and path analysis
+- Propagation predictions and path planning
 
 ### QSL Management
 QSL routing and management:

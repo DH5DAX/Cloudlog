@@ -1204,13 +1204,15 @@ class API extends CI_Controller {
 	 * 
 	 * This API endpoint performs a comprehensive callsign lookup using QRZ.com's XML API.
 	 * Returns full callsign data including profile information, location details, and
-	 * profile image links.
+	 * profile image links. Optionally calculates distance and bearing from a reference
+	 * station location.
 	 * 
 	 * @api POST /api/qrz_lookup
 	 * @header Content-Type application/json
 	 * 
 	 * @param string key Required. API authentication key
 	 * @param string callsign Required. Callsign to lookup
+	 * @param int station_profile_id Optional. Your station profile ID for distance/bearing calculation
 	 * 
 	 * @return json Returns JSON object with comprehensive QRZ.com data:
 	 *   - callsign: string - The callsign from QRZ
@@ -1225,9 +1227,11 @@ class API extends CI_Controller {
 	 *   - image: string - URL to profile image
 	 *   - state: string - State (US callsigns only)
 	 *   - us_county: string - US County (US callsigns only)
+	 *   - distance: string - Distance from your station (if station_profile_id provided)
+	 *   - bearing: string - Bearing from your station (if station_profile_id provided)
 	 *   - error: string - Error message if lookup failed
 	 * 
-	 * @throws 401 Unauthorized - Missing or invalid API key, missing required fields
+	 * @throws 401 Unauthorized - Missing or invalid API key, missing required fields, invalid station profile
 	 * @throws 503 Service Unavailable - QRZ.com credentials not configured or authentication failed
 	 * @throws 400 Bad Request - Invalid JSON format
 	 * 
@@ -1235,7 +1239,8 @@ class API extends CI_Controller {
 	 * Request:
 	 * {
 	 *   "key": "your-api-key",
-	 *   "callsign": "W1AW"
+	 *   "callsign": "W1AW",
+	 *   "station_profile_id": 1
 	 * }
 	 * 
 	 * Response:
@@ -1251,7 +1256,9 @@ class API extends CI_Controller {
 	 *   "qslmgr": "",
 	 *   "image": "https://s3.amazonaws.com/files.qrz.com/q/w1aw/w1aw.jpg",
 	 *   "state": "CT",
-	 *   "us_county": "Hartford"
+	 *   "us_county": "Hartford",
+	 *   "distance": "1247 km",
+	 *   "bearing": "072°"
 	 * }
 	 */
 	function qrz_lookup()
@@ -1271,6 +1278,7 @@ class API extends CI_Controller {
 
 		// Load required models
 		$this->load->model('api_model');
+		$this->load->model('stations');
 
 		// Validate API key
 		if (!isset($obj['key']) || !$this->api_model->authorize($obj['key'])) {
@@ -1287,6 +1295,26 @@ class API extends CI_Controller {
 		}
 
 		$callsign = strtoupper(trim($obj['callsign']));
+		$station_profile_id = isset($obj['station_profile_id']) ? intval($obj['station_profile_id']) : null;
+		$my_gridsquare = null;
+
+		// If station profile ID is provided, validate it and get gridsquare
+		if ($station_profile_id) {
+			$userid = $this->api_model->key_userid($obj['key']);
+			
+			// Check if station belongs to the API key owner
+			if (!$this->stations->check_station_against_user($station_profile_id, $userid)) {
+				http_response_code(401);
+				echo json_encode(['status' => 'failed', 'reason' => 'Station profile does not belong to API key owner']);
+				return;
+			}
+			
+			// Get station profile details
+			$station_profile = $this->stations->profile_clean($station_profile_id);
+			if ($station_profile && !empty($station_profile->station_gridsquare)) {
+				$my_gridsquare = strtoupper(trim($station_profile->station_gridsquare));
+			}
+		}
 
 		// Update API usage tracking
 		$this->api_model->update_last_used($obj['key']);
@@ -1326,6 +1354,30 @@ class API extends CI_Controller {
 				http_response_code(404);
 				echo json_encode(['status' => 'failed', 'reason' => "Callsign $callsign not found in QRZ.com database"]);
 				return;
+			}
+
+			// Calculate distance and bearing if both gridsquares are available
+			if ($my_gridsquare && !empty($qrz_data['gridsquare'])) {
+				$this->load->library('qra');
+				
+				try {
+					// Calculate distance in kilometers
+					$distance_km = $this->qra->distance($my_gridsquare, $qrz_data['gridsquare'], 'K');
+					$qrz_data['distance'] = round($distance_km, 0) . ' km';
+					
+					// Calculate bearing in degrees
+					$bearing_deg = $this->qra->bearing($my_gridsquare, $qrz_data['gridsquare'], 'D');
+					$qrz_data['bearing'] = sprintf('%03d°', round($bearing_deg));
+					
+				} catch (Exception $e) {
+					// If calculation fails, add empty values
+					$qrz_data['distance'] = '';
+					$qrz_data['bearing'] = '';
+				}
+			} else {
+				// No calculation possible
+				$qrz_data['distance'] = '';
+				$qrz_data['bearing'] = '';
 			}
 
 			// Return the QRZ data
